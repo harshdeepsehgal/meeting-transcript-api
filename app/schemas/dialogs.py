@@ -47,10 +47,17 @@ class DialogDetailResponse(BaseModel):
     turns: list[DialogTurnResponse]
 
 
+class SummaryResponse(BaseModel):
+    """Generated or cached plain-text meeting summary."""
+
+    summary: str
+
+
 __all__ = [
     "DialogDetailResponse",
     "DialogListItem",
     "DialogListResponse",
     "DialogTurnResponse",
+    "SummaryResponse",
     "TranscriptSegmentResponse",
 ]

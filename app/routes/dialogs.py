@@ -3,18 +3,22 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from openai import APIStatusError, OpenAIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Dialog, DialogTurn, TranscriptSegment
 from app.db.session import get_session
+from app.integrations.openai import is_context_limit_error
 from app.schemas.dialogs import (
     DialogDetailResponse,
     DialogListItem,
     DialogListResponse,
     DialogTurnResponse,
+    SummaryResponse,
     TranscriptSegmentResponse,
 )
 from app.services.dialogs import get_dialog_detail, list_dialogs
+from app.services.summarization import summarize_dialog
 
 router = APIRouter(prefix="/dialogs", tags=["dialogs"])
 
@@ -79,6 +83,58 @@ async def read_dialog(
 
     dialog, segments, turns = result
     return _detail_response(dialog, segments, turns)
+
+
+@router.post(
+    "/{dialog_id}/summary",
+    response_model=SummaryResponse,
+    responses={
+        404: {
+            "description": "Dialog not found",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Dialog not found"},
+                }
+            },
+        },
+        422: {"description": "Validation error or transcript exceeds model context limit"},
+        502: {"description": "Summary provider failed"},
+        503: {"description": "OpenAI API key is not configured"},
+    },
+)
+async def create_dialog_summary(
+    dialog_id: Annotated[str, Path(min_length=1)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    refresh: Annotated[
+        bool,
+        Query(description="Regenerate the summary instead of returning the cached value."),
+    ] = False,
+) -> SummaryResponse:
+    """Return a cached or newly generated meeting transcript summary."""
+    try:
+        summary = await summarize_dialog(session, dialog_id=dialog_id, refresh=refresh)
+    except APIStatusError as exc:
+        if is_context_limit_error(exc):
+            raise HTTPException(
+                status_code=422,
+                detail="Transcript exceeds model context limit",
+            ) from exc
+        raise HTTPException(status_code=502, detail="Summary provider failed") from exc
+    except OpenAIError as exc:
+        raise HTTPException(status_code=502, detail="Summary provider failed") from exc
+    except RuntimeError as exc:
+        if "OPENAI_API_KEY" in str(exc):
+            raise HTTPException(
+                status_code=503,
+                detail="OpenAI API key is not configured",
+            ) from exc
+        raise HTTPException(status_code=502, detail="Summary provider failed") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="Summary provider failed") from exc
+
+    if summary is None:
+        raise HTTPException(status_code=404, detail="Dialog not found")
+    return SummaryResponse(summary=summary)
 
 
 def _detail_response(

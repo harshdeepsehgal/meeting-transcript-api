@@ -51,4 +51,24 @@ async def get_dialog_detail(
     return dialog, segments, turns
 
 
-__all__ = ["get_dialog_detail", "list_dialogs"]
+async def get_dialog_transcript(
+    session: AsyncSession,
+    *,
+    dialog_id: str,
+) -> tuple[Dialog, list[TranscriptSegment]] | None:
+    """Return a dialog and its ordered transcript, if the dialog exists."""
+    dialog = await session.scalar(sa.select(Dialog).where(Dialog.dialog_id == dialog_id))
+    if dialog is None:
+        return None
+
+    segments = list(
+        await session.scalars(
+            sa.select(TranscriptSegment)
+            .where(TranscriptSegment.meeting_id == dialog.meeting_id)
+            .order_by(TranscriptSegment.position.asc())
+        )
+    )
+    return dialog, segments
+
+
+__all__ = ["get_dialog_detail", "get_dialog_transcript", "list_dialogs"]

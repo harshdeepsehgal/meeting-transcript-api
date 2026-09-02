@@ -6,9 +6,14 @@ async def test_application_documents_dialog_read_routes() -> None:
     async with application.router.lifespan_context(application):
         schema = application.openapi()
 
-    assert set(schema["paths"]) == {"/dialogs", "/dialogs/{dialog_id}"}
+    assert set(schema["paths"]) == {
+        "/dialogs",
+        "/dialogs/{dialog_id}",
+        "/dialogs/{dialog_id}/summary",
+    }
     assert set(schema["paths"]["/dialogs"]) == {"get"}
     assert set(schema["paths"]["/dialogs/{dialog_id}"]) == {"get"}
+    assert set(schema["paths"]["/dialogs/{dialog_id}/summary"]) == {"post"}
 
     list_operation = schema["paths"]["/dialogs"]["get"]
     list_parameters = {parameter["name"]: parameter for parameter in list_operation["parameters"]}
@@ -31,3 +36,22 @@ async def test_application_documents_dialog_read_routes() -> None:
     assert detail_operation["responses"]["200"]["content"]["application/json"]["schema"][
         "$ref"
     ].endswith("/DialogDetailResponse")
+
+    summary_operation = schema["paths"]["/dialogs/{dialog_id}/summary"]["post"]
+    summary_parameters = {
+        parameter["name"]: parameter for parameter in summary_operation["parameters"]
+    }
+    assert summary_parameters["refresh"]["schema"]["default"] is False
+    assert "requestBody" not in summary_operation
+    assert summary_operation["responses"]["200"]["content"]["application/json"]["schema"][
+        "$ref"
+    ].endswith("/SummaryResponse")
+    assert {
+        summary_operation["responses"][status]["description"]
+        for status in ("404", "422", "502", "503")
+    } == {
+        "Dialog not found",
+        "Validation error or transcript exceeds model context limit",
+        "Summary provider failed",
+        "OpenAI API key is not configured",
+    }
