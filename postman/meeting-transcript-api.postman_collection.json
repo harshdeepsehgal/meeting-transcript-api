@@ -1,0 +1,113 @@
+{
+  "info": {
+    "name": "Meeting Transcript API",
+    "description": "Requests for the MISeD meeting transcript service.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "dialog_id",
+      "value": "fixture-dialog-train-1"
+    },
+    {
+      "key": "cursor",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "List dialogs",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "description": "List the first page of dialogs. Enable the cursor query after copying next_cursor from a previous response.",
+        "url": {
+          "raw": "{{base_url}}/dialogs?limit=20&cursor={{cursor}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dialogs"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "20"
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get dialog",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "description": "Retrieve the complete transcript and query-response turns for one dialog.",
+        "url": {
+          "raw": "{{base_url}}/dialogs/{{dialog_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dialogs",
+            "{{dialog_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get cached summary",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "description": "Return the meeting summary cache entry, generating one only when no cache exists.",
+        "url": {
+          "raw": "{{base_url}}/dialogs/{{dialog_id}}/summary",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dialogs",
+            "{{dialog_id}}",
+            "summary"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Refresh summary",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "description": "Regenerate the full meeting transcript summary and replace the cache entry.",
+        "url": {
+          "raw": "{{base_url}}/dialogs/{{dialog_id}}/summary?refresh=true",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dialogs",
+            "{{dialog_id}}",
+            "summary"
+          ],
+          "query": [
+            {
+              "key": "refresh",
+              "value": "true"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
