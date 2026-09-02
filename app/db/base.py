@@ -13,6 +13,6 @@ NAMING_CONVENTION = {
 
 
 class Base(DeclarativeBase):
-    """Base for future domain models and Alembic metadata discovery."""
+    """Base for domain models and Alembic metadata discovery."""
 
     metadata = MetaData(schema=SCHEMA_NAME, naming_convention=NAMING_CONVENTION)
