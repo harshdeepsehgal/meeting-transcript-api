@@ -1,0 +1,11 @@
+.git
+.env
+local/.env
+.pytest_cache
+.ruff_cache
+.venv
+__pycache__
+*.py[cod]
+htmlcov
+mised/*
+tests

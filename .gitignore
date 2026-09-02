@@ -1,0 +1,19 @@
+.env
+local/.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
+.DS_Store
+
+# The MISeD dataset is mounted locally and is not committed.
+mised/*
+!mised/.gitkeep
+
+# Personal project notes.
+notes/
