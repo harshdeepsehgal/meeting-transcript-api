@@ -8,9 +8,9 @@
 - One imported record represents one complete dialog, not an individual query-response task instance.
 - Import all supplied `train`, `validation`, and `test` splits in one run.
 - Ingest the complete dialog data, including:
-  - Dialog metadata
+  - Dialog and meeting identifiers
   - Meeting transcript
-  - LLM/user queries
+  - LLM/user queries and their query metadata
   - LLM responses
   - Any attribution or reference metadata present in the dataset
 
@@ -25,8 +25,8 @@
 ## 3. Data APIs
 
 - Build APIs to query the data stored in the database.
-- Provide `GET /dialogs` to retrieve a compact list of dialogs. It must use bounded cursor pagination and support optional filtering by dataset split.
-- Provide `GET /dialogs/{dialog_id}` to retrieve a complete dialog, including its metadata, full meeting transcript, query-response turns, and attribution or reference data.
+- Provide `GET /dialogs` to retrieve a compact list of dialogs. It must use bounded cursor pagination.
+- Provide `GET /dialogs/{dialog_id}` to retrieve a complete dialog, including its dialog and meeting identifiers, full meeting transcript, query-response turns, query metadata, and attribution or reference data.
 - No additional search, transcript, query, or response endpoints are required.
 - APIs must return structured JSON responses.
 - A request for an unknown dialog must return `404 Not Found`.
@@ -37,7 +37,7 @@
 - The summarization API must use the OpenAI API.
 - The summary must describe the meeting itself, not the dataset's query-response dialog.
 - The API must return structured JSON whose generated content is a single plain-text summary field.
-- Cache summaries by dialog and configured model. Return the cached summary by default and support `refresh=true` to request regeneration.
+- Cache one summary per meeting transcript, keyed only by `meetingId`. Dialogs associated with the same meeting must share the cached summary. Return the cached summary by default and support `refresh=true` to request regeneration. Ingestion and re-ingestion must not modify cached summaries.
 - If the full transcript exceeds the configured model's context limit, return `422 Unprocessable Entity`; do not truncate or chunk the transcript.
 - No transcript question-answering API is required.
 - No partial or chunk-level summarization API is required.
@@ -77,7 +77,7 @@
 
 ## 9. Out of Scope
 
-- Transcript search and metadata filtering.
+- Transcript search and query-metadata filtering.
 - Separate transcript, query, response, or attribution endpoints.
 - Transcript question answering.
 - Partial, chunked, or truncated summarization.
