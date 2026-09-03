@@ -47,8 +47,8 @@ def get_openai_provider(request: Request) -> OpenAIProvider | None:
 
 SUMMARY_INSTRUCTIONS = (
     """
-    Summarize this meeting.
-    Return:
+    Summarize this meeting. Return only a concise plain-text summary.
+    It should contain the following:
     1. Executive summary
     2. Key discussion points
     3. Decisions made
