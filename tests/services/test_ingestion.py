@@ -53,7 +53,7 @@ def test_render_transcript_formats_speakers_and_without_speaker_lines() -> None:
     assert render_transcript(segments) == "Speaker A: First line.\nSecond line."
 
 
-async def test_ingests_all_splits_and_shares_transcripts() -> None:
+async def test_ingests_all_files_and_shares_transcripts() -> None:
     result = await ingest_dataset(CLEAN_FIXTURES)
 
     assert result.exit_code == 0
@@ -62,10 +62,18 @@ async def test_ingests_all_splits_and_shares_transcripts() -> None:
     assert result.report.skipped == 0
 
     async with SessionFactory() as session:
-        assert await _count(session, Transcript) == 3
-        assert await _count(session, Dialog) == 4
-        assert await _count(session, TranscriptSegment) == 4
-        assert await _count(session, DialogTurn) == 4
+        assert await _count(session, Transcript, Transcript.meeting_id, FIXTURE_MEETING_IDS) == 3
+        assert await _count(session, Dialog, Dialog.dialog_id, FIXTURE_DIALOG_IDS) == 4
+        assert (
+            await _count(
+                session,
+                TranscriptSegment,
+                TranscriptSegment.meeting_id,
+                FIXTURE_MEETING_IDS,
+            )
+            == 4
+        )
+        assert await _count(session, DialogTurn, DialogTurn.dialog_id, FIXTURE_DIALOG_IDS) == 4
 
         shared_dialogs = await session.scalars(
             sa.select(Dialog.dialog_id)
@@ -104,8 +112,8 @@ async def test_identical_reimport_is_idempotent_and_preserves_summary() -> None:
     assert second_result.report.skipped == 0
 
     async with SessionFactory() as session:
-        assert await _count(session, Transcript) == 3
-        assert await _count(session, Dialog) == 4
+        assert await _count(session, Transcript, Transcript.meeting_id, FIXTURE_MEETING_IDS) == 3
+        assert await _count(session, Dialog, Dialog.dialog_id, FIXTURE_DIALOG_IDS) == 4
         summary = await session.scalar(
             sa.select(TranscriptSummary.summary).where(
                 TranscriptSummary.meeting_id == "fixture-meeting-shared"
@@ -186,7 +194,7 @@ async def test_malformed_records_are_skipped_while_valid_records_commit() -> Non
     assert result.report.errors[0].message == "invalid JSON"
 
     async with SessionFactory() as session:
-        assert await _count(session, Dialog) == 4
+        assert await _count(session, Dialog, Dialog.dialog_id, FIXTURE_DIALOG_IDS) == 4
 
 
 async def test_missing_file_is_fatal_before_any_database_write(tmp_path: Path) -> None:
@@ -243,8 +251,9 @@ async def _delete_fixture_rows() -> None:
         )
 
 
-async def _count(session: Any, model: Any) -> int:
-    return int(await session.scalar(sa.select(sa.func.count()).select_from(model)))
+async def _count(session: Any, model: Any, column: Any, values: tuple[str, ...]) -> int:
+    statement = sa.select(sa.func.count()).select_from(model).where(column.in_(values))
+    return int(await session.scalar(statement))
 
 
 def _write_fixture_set(
@@ -253,10 +262,10 @@ def _write_fixture_set(
     train_records: list[dict[str, Any]] | None = None,
 ) -> Path:
     destination.mkdir(parents=True, exist_ok=True)
-    for split in ("train", "validation", "test"):
-        if split == "train" and train_records is not None:
+    for file in ("train", "validation", "test"):
+        if file == "train" and train_records is not None:
             lines = [json.dumps(record) for record in train_records]
         else:
-            lines = (CLEAN_FIXTURES / f"{split}.jsonl").read_text(encoding="utf-8").splitlines()
-        (destination / f"{split}.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            lines = (CLEAN_FIXTURES / f"{file}.jsonl").read_text(encoding="utf-8").splitlines()
+        (destination / f"{file}.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return destination

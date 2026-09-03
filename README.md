@@ -38,7 +38,7 @@ mised/validation.jsonl
 mised/test.jsonl
 ```
 
-The application does not download the dataset. Import all three splits with:
+The application does not download the dataset. Import all three files with:
 
 ```bash
 uv run ingest-mised --dataset-dir mised

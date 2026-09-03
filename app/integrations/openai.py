@@ -1,8 +1,11 @@
+import logging
 from dataclasses import dataclass
 
 from openai import APIStatusError, AsyncOpenAI
 
 from app.core.config import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +20,7 @@ def build_openai_provider(settings: Settings | None = None) -> OpenAIProvider:
     """Build an OpenAI provider without making a network request."""
     resolved = settings or get_settings()
     if resolved.openai_api_key is None or not resolved.openai_api_key.get_secret_value():
+        logger.warning("OpenAI provider requested without a configured API key")
         raise RuntimeError("OPENAI_API_KEY is required before using the OpenAI integration")
 
     client = AsyncOpenAI(
@@ -24,12 +28,17 @@ def build_openai_provider(settings: Settings | None = None) -> OpenAIProvider:
         timeout=resolved.openai_timeout_seconds,
         max_retries=resolved.openai_max_retries,
     )
+    logger.info(
+        "OpenAI provider configured: model=%s timeout_seconds=%s max_retries=%s",
+        resolved.openai_model,
+        resolved.openai_timeout_seconds,
+        resolved.openai_max_retries,
+    )
     return OpenAIProvider(client=client, model=resolved.openai_model)
 
 
 SUMMARY_INSTRUCTIONS = (
-    "Summarize the meeting described by the transcript. Focus on the meeting itself, "
-    "not the dataset's questions or answers. Return only a concise plain-text summary."
+    "Summarize the meeting described by the transcript. Return only a concise plain-text summary."
 )
 
 
@@ -38,6 +47,11 @@ async def request_transcript_summary(
     transcript: str,
 ) -> str:
     """Generate a plain-text summary from the complete rendered transcript."""
+    logger.info(
+        "Requesting OpenAI transcript summary: model=%s transcript_chars=%d",
+        provider.model,
+        len(transcript),
+    )
     response = await provider.client.responses.create(
         model=provider.model,
         instructions=SUMMARY_INSTRUCTIONS,
@@ -45,6 +59,11 @@ async def request_transcript_summary(
         truncation="disabled",
     )
     output_text = getattr(response, "output_text", "")
+    logger.info(
+        "Received OpenAI transcript summary: model=%s output_chars=%d",
+        provider.model,
+        len(output_text) if isinstance(output_text, str) else 0,
+    )
     summary = output_text.strip() if isinstance(output_text, str) else ""
     if not summary:
         raise ValueError("OpenAI returned empty summary output")

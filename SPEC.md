@@ -6,7 +6,7 @@
 - Developers will supply the dataset locally; downloading the dataset is not part of the application.
 - Ingest data from the JSONL files under the `mised` directory. The dataset files must remain uncommitted.
 - One imported record represents one complete dialog, not an individual query-response task instance.
-- Import all supplied `train`, `validation`, and `test` splits in one run.
+- Import all supplied `train`, `validation`, and `test` files in one run.
 - Ingest the complete dialog data, including:
   - Dialog and meeting identifiers
   - Meeting transcript
