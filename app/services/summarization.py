@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import TranscriptSummary
 from app.integrations.openai import (
-    build_openai_provider,
+    OpenAIProvider,
     request_transcript_summary,
 )
 from app.services.dialogs import get_dialog_transcript
@@ -22,6 +22,7 @@ async def summarize_dialog(
     *,
     dialog_id: str,
     refresh: bool,
+    provider: OpenAIProvider | None,
 ) -> str | None:
     """Return a cached summary or generate and cache one for the dialog's meeting."""
     async with session.begin():
@@ -51,7 +52,8 @@ async def summarize_dialog(
         dialog.meeting_id,
         refresh,
     )
-    provider = build_openai_provider()
+    if provider is None:
+        raise RuntimeError("OPENAI_API_KEY is required before using the OpenAI integration")
     summary = await request_transcript_summary(provider, render_transcript(segments))
     if not summary.strip():
         raise ValueError("OpenAI returned empty summary output")

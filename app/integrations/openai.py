@@ -1,12 +1,12 @@
 import logging
 from dataclasses import dataclass
 
+from fastapi import Request
 from openai import APIStatusError, AsyncOpenAI
 
-from app.core.config import Settings, get_settings
+from app.core.config import Settings
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass(frozen=True, slots=True)
 class OpenAIProvider:
@@ -15,26 +15,34 @@ class OpenAIProvider:
     client: AsyncOpenAI
     model: str
 
+    async def close(self) -> None:
+        """Close the underlying asynchronous HTTP client."""
+        await self.client.close()
 
-def build_openai_provider(settings: Settings | None = None) -> OpenAIProvider:
+
+def build_openai_provider(settings: Settings) -> OpenAIProvider:
     """Build an OpenAI provider without making a network request."""
-    resolved = settings or get_settings()
-    if resolved.openai_api_key is None or not resolved.openai_api_key.get_secret_value():
+    if settings.openai_api_key is None or not settings.openai_api_key.get_secret_value():
         logger.warning("OpenAI provider requested without a configured API key")
         raise RuntimeError("OPENAI_API_KEY is required before using the OpenAI integration")
 
     client = AsyncOpenAI(
-        api_key=resolved.openai_api_key.get_secret_value(),
-        timeout=resolved.openai_timeout_seconds,
-        max_retries=resolved.openai_max_retries,
+        api_key=settings.openai_api_key.get_secret_value(),
+        timeout=settings.openai_timeout_seconds,
+        max_retries=settings.openai_max_retries,
     )
     logger.info(
         "OpenAI provider configured: model=%s timeout_seconds=%s max_retries=%s",
-        resolved.openai_model,
-        resolved.openai_timeout_seconds,
-        resolved.openai_max_retries,
+        settings.openai_model,
+        settings.openai_timeout_seconds,
+        settings.openai_max_retries,
     )
-    return OpenAIProvider(client=client, model=resolved.openai_model)
+    return OpenAIProvider(client=client, model=settings.openai_model)
+
+
+def get_openai_provider(request: Request) -> OpenAIProvider | None:
+    """Return the lifespan-scoped provider, when OpenAI is configured."""
+    return request.state.openai_provider
 
 
 SUMMARY_INSTRUCTIONS = (
@@ -99,6 +107,7 @@ __all__ = [
     "OpenAIProvider",
     "SUMMARY_INSTRUCTIONS",
     "build_openai_provider",
+    "get_openai_provider",
     "is_context_limit_error",
     "request_transcript_summary",
 ]

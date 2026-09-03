@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Dialog, DialogTurn, TranscriptSegment
 from app.db.session import get_session
-from app.integrations.openai import is_context_limit_error
+from app.integrations.openai import OpenAIProvider, get_openai_provider, is_context_limit_error
 from app.schemas.dialogs import (
     DialogDetailResponse,
     DialogListItem,
@@ -122,6 +122,7 @@ async def read_dialog(
 async def create_dialog_summary(
     dialog_id: Annotated[str, Path(min_length=1)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    provider: Annotated[OpenAIProvider | None, Depends(get_openai_provider)],
     refresh: Annotated[
         bool,
         Query(description="Regenerate the summary instead of returning the cached value."),
@@ -130,7 +131,12 @@ async def create_dialog_summary(
     """Return a cached or newly generated meeting transcript summary."""
     logger.info("Summary requested: dialog_id=%r refresh=%s", dialog_id, refresh)
     try:
-        summary = await summarize_dialog(session, dialog_id=dialog_id, refresh=refresh)
+        summary = await summarize_dialog(
+            session,
+            dialog_id=dialog_id,
+            refresh=refresh,
+            provider=provider,
+        )
     except APIStatusError as exc:
         if is_context_limit_error(exc):
             logger.warning(
