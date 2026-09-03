@@ -1,10 +1,11 @@
 import sqlalchemy as sa
+from fastapi import Request
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.db.base import SCHEMA_NAME, Base
 from app.db.models import Dialog, DialogTurn, Transcript, TranscriptSegment, TranscriptSummary
-from app.db.session import build_engine, get_session
+from app.db.session import build_engine, build_session_factory, get_session
 
 
 def test_domain_models_declare_the_normalized_tables() -> None:
@@ -74,9 +75,22 @@ async def test_build_engine_does_not_require_a_live_database() -> None:
 
 
 async def test_session_dependency_yields_an_async_session() -> None:
-    dependency = get_session()
-    session = await anext(dependency)
+    database_engine = build_engine("postgresql+psycopg://postgres:postgres@localhost/test")
+    request = Request(
+        {
+            "type": "http",
+            "state": {
+                "db_session_factory": build_session_factory(database_engine),
+            },
+        }
+    )
 
-    assert isinstance(session, AsyncSession)
+    try:
+        dependency = get_session(request)
+        session = await anext(dependency)
 
-    await dependency.aclose()
+        assert isinstance(session, AsyncSession)
+
+        await dependency.aclose()
+    finally:
+        await database_engine.dispose()

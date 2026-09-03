@@ -4,7 +4,7 @@ from pathlib import Path
 from app.main import create_app
 
 COLLECTION_PATH = (
-    Path(__file__).parents[1] / "postman" / "meeting-transcript-api.postman_collection.json"
+    Path(__file__).parents[2] / "postman" / "meeting-transcript-api.postman_collection.json"
 )
 EXPECTED_OPERATIONS = {
     ("GET", "/dialogs"),
@@ -57,7 +57,7 @@ def _postman_path(url: dict[str, object]) -> str:
 
 
 def test_gitignore_excludes_local_credentials_and_dataset() -> None:
-    gitignore = (Path(__file__).parents[1] / ".gitignore").read_text(encoding="utf-8")
+    gitignore = (Path(__file__).parents[2] / ".gitignore").read_text(encoding="utf-8")
 
     assert "local/.env" in gitignore
     assert "mised/*" in gitignore

@@ -32,14 +32,10 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
-      - ../app:/app/app:ro
-      - ../alembic:/app/alembic
-      - ../alembic.ini:/app/alembic.ini:ro
       - ../mised:/data/mised:ro
     depends_on:
       db:
         condition: service_healthy
-    command: ["uv", "run", "--no-sync", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/openapi.json')"]
       interval: 10s

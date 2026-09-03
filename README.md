@@ -23,7 +23,7 @@ Start PostgreSQL and apply the Alembic schema:
 
 ```bash
 make db-up
-uv run alembic upgrade head
+make migrate
 ```
 
 The bootstrap SQL creates the `meeting_transcript` schema. The application tables are created by Alembic. Application queries use async SQLAlchemy with Psycopg 3; Alembic uses the same database URL with its synchronous driver.
@@ -70,7 +70,10 @@ To run the complete local stack with Docker Compose:
 make up
 ```
 
-When using the complete stack, run `make migrate` before ingestion and `make ingest` to import files mounted from the local `mised` directory. Compose exposes the API on port `8000` and PostgreSQL on port `5432` by default; override them with `API_PORT` and `POSTGRES_PORT` in `local/.env`.
+The complete stack applies migrations before starting the API. Run `make ingest` to
+import the files mounted from the local `mised` directory. Compose exposes the API
+on port `8000` and PostgreSQL on port `5432` by default; override them with
+`API_PORT` and `POSTGRES_PORT` in `local/.env`.
 
 ## Configuration
 
@@ -87,7 +90,7 @@ Runtime settings are read from environment variables and `local/.env`:
 | `POSTGRES_PORT` | `5432` | Published Compose PostgreSQL port |
 | `API_PORT` | `8000` | Published Compose API port |
 | `OPENAI_API_KEY` | empty | Required only when generating or refreshing a missing summary |
-| `OPENAI_MODEL` | `gpt-5-mini` | OpenAI Responses API model |
+| `OPENAI_MODEL` | `gpt-5.6-terra` | OpenAI Responses API model |
 | `OPENAI_TIMEOUT_SECONDS` | `60` | OpenAI request timeout |
 | `OPENAI_MAX_RETRIES` | `2` | OpenAI client retry count |
 
@@ -170,10 +173,21 @@ The cache is keyed only by `meeting_id`, so dialogs for the same meeting share o
 
 Import [`postman/meeting-transcript-api.postman_collection.json`](postman/meeting-transcript-api.postman_collection.json) into Postman. Set the `base_url` and `dialog_id` collection variables for the local environment. The collection includes list, detail, cached-summary, and refreshed-summary requests.
 
-## Quality checks
+## Tests
 
 ```bash
-uv run pytest
+make test              # Run unit and integration tests
+make test-unit         # Run unit tests only
+make test-integration  # Run integration tests only
+```
+
+Unit tests do not require external services. Integration tests require Docker and
+automatically start, migrate, and remove a dedicated PostgreSQL database on port
+`55432`, including its test data and volume.
+
+## Other quality checks
+
+```bash
 uv run ruff check .
 uv run ruff format --check .
 uv run alembic check
