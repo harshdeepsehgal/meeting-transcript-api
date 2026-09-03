@@ -46,7 +46,19 @@ def get_openai_provider(request: Request) -> OpenAIProvider | None:
 
 
 SUMMARY_INSTRUCTIONS = (
-    "Summarize the meeting described by the transcript. Return only a concise plain-text summary."
+    """
+    Summarize this meeting.
+    Return:
+    1. Executive summary
+    2. Key discussion points
+    3. Decisions made
+    4. Action items — owner, task, deadline
+    5. Open questions
+    6. Risks/blockers
+    7. Important dates and numbers
+
+    Do not invent owners, deadlines, or decisions that were not explicitly stated.
+    """
 )
 
 
@@ -62,6 +74,7 @@ async def request_transcript_summary(
     )
     response = await provider.client.responses.create(
         model=provider.model,
+        reasoning={"effort": "none"},
         instructions=SUMMARY_INSTRUCTIONS,
         input=transcript,
         truncation="disabled",
