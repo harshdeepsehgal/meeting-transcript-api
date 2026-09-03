@@ -1,4 +1,3 @@
-from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
 import httpx
@@ -8,53 +7,25 @@ from fastapi import FastAPI
 from openai import BadRequestError, OpenAIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Dialog, DialogTurn, Transcript, TranscriptSegment, TranscriptSummary
-from app.db.session import SessionFactory, get_session
-from app.main import create_app
+from app.db.models import Dialog, Transcript, TranscriptSegment, TranscriptSummary
+from app.integrations.openai import get_openai_provider
 from app.services import summarization
-
-SUMMARY_DIALOG_IDS = ("summary-dialog-one", "summary-dialog-two")
-SUMMARY_MEETING_IDS = ("summary-meeting-shared",)
 
 
 @pytest.fixture(autouse=True)
-async def clean_summary_rows() -> AsyncIterator[None]:
-    await _delete_summary_rows()
-    yield
-    await _delete_summary_rows()
-
-
-@pytest.fixture
-def application() -> FastAPI:
-    application = create_app()
-
-    async def override_get_session() -> AsyncIterator[AsyncSession]:
-        async with SessionFactory() as session:
-            yield session
-
-    application.dependency_overrides[get_session] = override_get_session
-    return application
-
-
-@pytest.fixture
-async def client(application: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=application),
-        base_url="http://test",
-    ) as test_client:
-        yield test_client
+def provider(application: FastAPI) -> SimpleNamespace:
+    provider = SimpleNamespace(model="test-model")
+    application.dependency_overrides[get_openai_provider] = lambda: provider
+    return provider
 
 
 async def test_summary_cache_hit_does_not_construct_provider(
     client: httpx.AsyncClient,
-    monkeypatch: pytest.MonkeyPatch,
+    application: FastAPI,
+    db_session: AsyncSession,
 ) -> None:
-    await _seed_summary_dialog(summary="Cached meeting summary.")
-
-    def fail_provider() -> object:
-        raise AssertionError("provider must not be constructed for a cache hit")
-
-    monkeypatch.setattr(summarization, "build_openai_provider", fail_provider)
+    await _seed_summary_dialog(db_session, summary="Cached meeting summary.")
+    application.dependency_overrides[get_openai_provider] = lambda: None
 
     response = await client.post("/dialogs/summary-dialog-one/summary")
 
@@ -64,16 +35,11 @@ async def test_summary_cache_hit_does_not_construct_provider(
 
 async def test_summary_cache_miss_sends_full_rendered_transcript_and_caches_result(
     client: httpx.AsyncClient,
+    db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    await _seed_summary_dialog()
+    await _seed_summary_dialog(db_session)
     calls: list[tuple[object, str]] = []
-
-    monkeypatch.setattr(
-        summarization,
-        "build_openai_provider",
-        lambda: SimpleNamespace(model="test-model"),
-    )
 
     async def fake_request(provider: object, transcript: str) -> str:
         calls.append((provider, transcript))
@@ -87,29 +53,23 @@ async def test_summary_cache_miss_sends_full_rendered_transcript_and_caches_resu
     assert response.json() == {"summary": "Generated meeting summary."}
     assert len(calls) == 1
     assert calls[0][1] == "Speaker A: First meeting point.\nSecond meeting point."
-    async with SessionFactory() as session:
-        assert (
-            await session.scalar(
-                sa.select(TranscriptSummary.summary).where(
-                    TranscriptSummary.meeting_id == "summary-meeting-shared"
-                )
+    assert (
+        await db_session.scalar(
+            sa.select(TranscriptSummary.summary).where(
+                TranscriptSummary.meeting_id == "summary-meeting-shared"
             )
-            == "Generated meeting summary."
         )
+        == "Generated meeting summary."
+    )
 
 
 async def test_dialogs_sharing_a_meeting_share_one_summary_cache(
     client: httpx.AsyncClient,
+    db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    await _seed_summary_dialog()
+    await _seed_summary_dialog(db_session)
     request_count = 0
-
-    monkeypatch.setattr(
-        summarization,
-        "build_openai_provider",
-        lambda: SimpleNamespace(model="test-model"),
-    )
 
     async def fake_request(_: object, __: str) -> str:
         nonlocal request_count
@@ -128,18 +88,16 @@ async def test_dialogs_sharing_a_meeting_share_one_summary_cache(
 
 async def test_refresh_replaces_cache_and_failed_refresh_preserves_previous_value(
     client: httpx.AsyncClient,
+    provider: SimpleNamespace,
+    db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    await _seed_summary_dialog(summary="Original summary.")
+    await _seed_summary_dialog(db_session, summary="Original summary.")
     responses = iter(("Refreshed summary.", ValueError("empty summary output")))
+    providers: list[object] = []
 
-    monkeypatch.setattr(
-        summarization,
-        "build_openai_provider",
-        lambda: SimpleNamespace(model="test-model"),
-    )
-
-    async def fake_request(_: object, __: str) -> str:
+    async def fake_request(provider: object, __: str) -> str:
+        providers.append(provider)
         result = next(responses)
         if isinstance(result, Exception):
             raise result
@@ -159,27 +117,24 @@ async def test_refresh_replaces_cache_and_failed_refresh_preserves_previous_valu
     assert refreshed.status_code == 200
     assert refreshed.json() == {"summary": "Refreshed summary."}
     assert failed.status_code == 502
-    async with SessionFactory() as session:
-        assert (
-            await session.scalar(
-                sa.select(TranscriptSummary.summary).where(
-                    TranscriptSummary.meeting_id == "summary-meeting-shared"
-                )
+    assert providers == [provider, provider]
+    assert (
+        await db_session.scalar(
+            sa.select(TranscriptSummary.summary).where(
+                TranscriptSummary.meeting_id == "summary-meeting-shared"
             )
-            == "Refreshed summary."
         )
+        == "Refreshed summary."
+    )
 
 
 async def test_model_configuration_does_not_change_cache_identity(
     client: httpx.AsyncClient,
-    monkeypatch: pytest.MonkeyPatch,
+    application: FastAPI,
+    db_session: AsyncSession,
 ) -> None:
-    await _seed_summary_dialog(summary="Model-independent summary.")
-
-    def fail_provider() -> object:
-        raise AssertionError("cached summary should be returned")
-
-    monkeypatch.setattr(summarization, "build_openai_provider", fail_provider)
+    await _seed_summary_dialog(db_session, summary="Model-independent summary.")
+    application.dependency_overrides[get_openai_provider] = lambda: None
 
     response = await client.post("/dialogs/summary-dialog-two/summary")
 
@@ -189,14 +144,11 @@ async def test_model_configuration_does_not_change_cache_identity(
 
 async def test_missing_key_returns_503(
     client: httpx.AsyncClient,
-    monkeypatch: pytest.MonkeyPatch,
+    application: FastAPI,
+    db_session: AsyncSession,
 ) -> None:
-    await _seed_summary_dialog()
-    monkeypatch.setattr(
-        summarization,
-        "build_openai_provider",
-        lambda: (_ for _ in ()).throw(RuntimeError("OPENAI_API_KEY is required")),
-    )
+    await _seed_summary_dialog(db_session)
+    application.dependency_overrides[get_openai_provider] = lambda: None
 
     response = await client.post("/dialogs/summary-dialog-one/summary")
 
@@ -206,19 +158,15 @@ async def test_missing_key_returns_503(
 
 async def test_context_limit_failure_returns_422(
     client: httpx.AsyncClient,
+    db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    await _seed_summary_dialog()
+    await _seed_summary_dialog(db_session)
     request = httpx.Request("POST", "https://api.openai.com/v1/responses")
     error = BadRequestError(
         "context length exceeded",
         response=httpx.Response(400, request=request),
         body={"error": {"code": "context_length_exceeded"}},
-    )
-    monkeypatch.setattr(
-        summarization,
-        "build_openai_provider",
-        lambda: SimpleNamespace(model="test-model"),
     )
 
     async def fail_request(_: object, __: str) -> str:
@@ -235,15 +183,11 @@ async def test_context_limit_failure_returns_422(
 @pytest.mark.parametrize("failure", [OpenAIError("provider unavailable"), ValueError("empty")])
 async def test_other_provider_failures_return_502(
     client: httpx.AsyncClient,
+    db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
     failure: Exception,
 ) -> None:
-    await _seed_summary_dialog()
-    monkeypatch.setattr(
-        summarization,
-        "build_openai_provider",
-        lambda: SimpleNamespace(model="test-model"),
-    )
+    await _seed_summary_dialog(db_session)
 
     async def fail_request(_: object, __: str) -> str:
         raise failure
@@ -258,12 +202,9 @@ async def test_other_provider_failures_return_502(
 
 async def test_unknown_dialog_returns_404_without_provider_call(
     client: httpx.AsyncClient,
-    monkeypatch: pytest.MonkeyPatch,
+    application: FastAPI,
 ) -> None:
-    def fail_provider() -> object:
-        raise AssertionError("provider must not be constructed for an unknown dialog")
-
-    monkeypatch.setattr(summarization, "build_openai_provider", fail_provider)
+    application.dependency_overrides[get_openai_provider] = lambda: None
 
     response = await client.post("/dialogs/unknown-dialog/summary")
 
@@ -280,8 +221,12 @@ async def test_invalid_refresh_returns_422(client: httpx.AsyncClient) -> None:
     assert response.status_code == 422
 
 
-async def _seed_summary_dialog(*, summary: str | None = None) -> None:
-    async with SessionFactory() as session, session.begin():
+async def _seed_summary_dialog(
+    session: AsyncSession,
+    *,
+    summary: str | None = None,
+) -> None:
+    async with session.begin():
         session.add(Transcript(meeting_id="summary-meeting-shared"))
         await session.flush()
         session.add_all(
@@ -320,24 +265,3 @@ async def _seed_summary_dialog(*, summary: str | None = None) -> None:
                     summary=summary,
                 )
             )
-
-
-async def _delete_summary_rows() -> None:
-    async with SessionFactory() as session, session.begin():
-        await session.execute(
-            sa.delete(TranscriptSummary).where(
-                TranscriptSummary.meeting_id.in_(SUMMARY_MEETING_IDS)
-            )
-        )
-        await session.execute(
-            sa.delete(DialogTurn).where(DialogTurn.dialog_id.in_(SUMMARY_DIALOG_IDS))
-        )
-        await session.execute(sa.delete(Dialog).where(Dialog.dialog_id.in_(SUMMARY_DIALOG_IDS)))
-        await session.execute(
-            sa.delete(TranscriptSegment).where(
-                TranscriptSegment.meeting_id.in_(SUMMARY_MEETING_IDS)
-            )
-        )
-        await session.execute(
-            sa.delete(Transcript).where(Transcript.meeting_id.in_(SUMMARY_MEETING_IDS))
-        )

@@ -1,13 +1,8 @@
-from collections.abc import AsyncIterator
-
 import httpx
 import pytest
-import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Dialog, DialogTurn, Transcript, TranscriptSegment
-from app.db.session import SessionFactory, get_session
-from app.main import create_app
 
 TEST_DIALOG_IDS = (
     "api-dialog-001",
@@ -23,35 +18,9 @@ TEST_MEETING_IDS = (
 )
 
 
-@pytest.fixture(autouse=True)
-async def clean_test_rows() -> AsyncIterator[None]:
-    await _delete_test_rows()
-    yield
-    await _delete_test_rows()
-
-
-@pytest.fixture
-def application() -> object:
-    application = create_app()
-
-    async def override_get_session() -> AsyncIterator[AsyncSession]:
-        async with SessionFactory() as session:
-            yield session
-
-    application.dependency_overrides[get_session] = override_get_session
-    return application
-
-
-@pytest.fixture
-async def client(application: object) -> AsyncIterator[httpx.AsyncClient]:
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=application),
-        base_url="http://test",
-    ) as test_client:
-        yield test_client
-
-
-async def test_list_dialogs_returns_empty_page(client: httpx.AsyncClient) -> None:
+async def test_list_dialogs_returns_empty_page(
+    client: httpx.AsyncClient,
+) -> None:
     response = await client.get("/dialogs")
 
     assert response.status_code == 200
@@ -60,26 +29,27 @@ async def test_list_dialogs_returns_empty_page(client: httpx.AsyncClient) -> Non
 
 async def test_list_dialogs_uses_bounded_cursor_pagination(
     client: httpx.AsyncClient,
+    db_session: AsyncSession,
 ) -> None:
-    await _seed_list_rows()
+    dialog_ids, meeting_ids = await _seed_list_rows(db_session)
 
     first_page = await client.get("/dialogs", params={"limit": 2})
     second_page = await client.get(
         "/dialogs",
-        params={"limit": 2, "cursor": "api-dialog-002"},
+        params={"limit": 2, "cursor": dialog_ids[1]},
     )
 
     assert first_page.status_code == 200
     assert first_page.json() == {
         "items": [
-            {"dialog_id": "api-dialog-001", "meeting_id": "api-meeting-001"},
-            {"dialog_id": "api-dialog-002", "meeting_id": "api-meeting-002"},
+            {"dialog_id": dialog_ids[0], "meeting_id": meeting_ids[0]},
+            {"dialog_id": dialog_ids[1], "meeting_id": meeting_ids[1]},
         ],
-        "next_cursor": "api-dialog-002",
+        "next_cursor": dialog_ids[1],
     }
     assert second_page.status_code == 200
     assert second_page.json() == {
-        "items": [{"dialog_id": "api-dialog-003", "meeting_id": "api-meeting-003"}],
+        "items": [{"dialog_id": dialog_ids[2], "meeting_id": meeting_ids[2]}],
         "next_cursor": None,
     }
 
@@ -102,8 +72,9 @@ async def test_list_dialogs_rejects_empty_cursor(client: httpx.AsyncClient) -> N
 
 async def test_get_dialog_returns_ordered_complete_content(
     client: httpx.AsyncClient,
+    db_session: AsyncSession,
 ) -> None:
-    await _seed_detail_row()
+    await _seed_detail_row(db_session)
 
     response = await client.get("/dialogs/api-dialog-detail")
 
@@ -145,27 +116,27 @@ async def test_get_dialog_returns_exact_404_for_unknown_dialog(
     assert response.json() == {"detail": "Dialog not found"}
 
 
-async def _seed_list_rows() -> None:
-    async with SessionFactory() as session, session.begin():
-        session.add_all(
-            [
-                Transcript(meeting_id="api-meeting-001"),
-                Transcript(meeting_id="api-meeting-002"),
-                Transcript(meeting_id="api-meeting-003"),
-            ]
-        )
+async def _seed_list_rows(
+    session: AsyncSession,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    dialog_ids = TEST_DIALOG_IDS[:3]
+    meeting_ids = TEST_MEETING_IDS[:3]
+    async with session.begin():
+        session.add_all([Transcript(meeting_id=meeting_id) for meeting_id in meeting_ids])
         await session.flush()
         session.add_all(
             [
-                Dialog(dialog_id="api-dialog-001", meeting_id="api-meeting-001"),
-                Dialog(dialog_id="api-dialog-002", meeting_id="api-meeting-002"),
-                Dialog(dialog_id="api-dialog-003", meeting_id="api-meeting-003"),
+                Dialog(dialog_id=dialog_id, meeting_id=meeting_id)
+                for dialog_id, meeting_id in zip(dialog_ids, meeting_ids, strict=True)
             ]
         )
+    return dialog_ids, meeting_ids
 
 
-async def _seed_detail_row() -> None:
-    async with SessionFactory() as session, session.begin():
+async def _seed_detail_row(
+    session: AsyncSession,
+) -> None:
+    async with session.begin():
         session.add(Transcript(meeting_id="api-meeting-detail"))
         await session.flush()
         session.add(Dialog(dialog_id="api-dialog-detail", meeting_id="api-meeting-detail"))
@@ -203,18 +174,4 @@ async def _seed_detail_row() -> None:
                     references=[],
                 ),
             ]
-        )
-
-
-async def _delete_test_rows() -> None:
-    async with SessionFactory() as session, session.begin():
-        await session.execute(
-            sa.delete(DialogTurn).where(DialogTurn.dialog_id.in_(TEST_DIALOG_IDS))
-        )
-        await session.execute(sa.delete(Dialog).where(Dialog.dialog_id.in_(TEST_DIALOG_IDS)))
-        await session.execute(
-            sa.delete(TranscriptSegment).where(TranscriptSegment.meeting_id.in_(TEST_MEETING_IDS))
-        )
-        await session.execute(
-            sa.delete(Transcript).where(Transcript.meeting_id.in_(TEST_MEETING_IDS))
         )

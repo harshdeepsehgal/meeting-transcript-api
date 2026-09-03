@@ -176,7 +176,6 @@ Print one JSON report to stdout:
   "skipped": 1,
   "errors": [
     {
-      "split": "train",
       "file": "train.jsonl",
       "line": 8,
       "dialog_id": "known-id-or-null",
@@ -332,7 +331,7 @@ uv run pytest tests/test_database.py
   without reading or writing summary rows.
 - [ ] Produce the required report and exit codes.
 - [ ] Replace the placeholder CLI test with ingestion tests covering:
-  - successful import across all splits;
+  - successful import across all files;
   - two dialogs sharing one transcript;
   - identical re-import without duplicate rows;
   - re-import leaving an existing meeting summary unchanged;
@@ -416,7 +415,7 @@ git diff --check
 ## 5. Definition of Done
 
 - All five normalized tables exist through Alembic and use MISeD natural identifiers.
-- All three splits import in one command, and re-importing does not create duplicates.
+- All three files import in one command, and re-importing does not create duplicates.
 - Malformed records are reported and skipped without blocking valid records.
 - `GET /dialogs` is bounded and cursor-paginated.
 - `GET /dialogs/{dialog_id}` returns the complete transcript, dialog turns, query metadata,

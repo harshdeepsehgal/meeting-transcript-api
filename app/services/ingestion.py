@@ -1,6 +1,7 @@
 """Streaming MISeD JSONL ingestion and transcript rendering."""
 
 import json
+import logging
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -9,12 +10,12 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Dialog, DialogTurn, Transcript, TranscriptSegment
-from app.db.session import SessionFactory
 
-SPLITS = ("train", "validation", "test")
+FILES = ("train", "validation", "test")
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +53,6 @@ class NormalizedRecord:
 class IngestionError:
     """A safe description of one skipped source line."""
 
-    split: str
     file: str
     line: int
     dialog_id: str | None
@@ -127,71 +127,99 @@ def render_transcript(
 
 async def ingest_dataset(
     dataset_dir: Path,
-    session_factory: async_sessionmaker[AsyncSession] | None = None,
+    session: AsyncSession,
 ) -> IngestionResult:
-    """Stream all MISeD splits into PostgreSQL and return the command result."""
+    """Stream all MISeD files into PostgreSQL and return the command result."""
     report = IngestionReport()
+    logger.info("Starting dataset ingestion: dataset_dir=%r", str(dataset_dir))
 
     try:
         dataset_files = _required_dataset_files(dataset_dir)
     except OSError as exc:
         return _fatal_result(report, str(exc))
 
-    factory = session_factory or SessionFactory
     try:
-        async with factory() as session:
-            for split, dataset_file in dataset_files:
-                with dataset_file.open("r", encoding="utf-8") as stream:
-                    for line_number, line in enumerate(stream, start=1):
-                        try:
-                            raw_record = json.loads(line)
-                            normalized = normalize_record(raw_record)
-                        except json.JSONDecodeError:
-                            report.skipped += 1
-                            report.errors.append(
-                                IngestionError(
-                                    split=split,
-                                    file=dataset_file.name,
-                                    line=line_number,
-                                    dialog_id=None,
-                                    message="invalid JSON",
-                                )
+        for _, dataset_file in dataset_files:
+            logger.info("Ingesting dataset file=%s", dataset_file.name)
+            with dataset_file.open("r", encoding="utf-8") as stream:
+                for line_number, line in enumerate(stream, start=1):
+                    raw_record = None
+                    try:
+                        raw_record = json.loads(line)
+                        normalized = normalize_record(raw_record)
+                    except json.JSONDecodeError as exc:
+                        report.skipped += 1
+                        logger.warning(
+                            "Skipping invalid JSON record: file=%s line=%d error_type=%s",
+                            dataset_file.name,
+                            line_number,
+                            type(exc).__name__,
+                        )
+                        report.errors.append(
+                            IngestionError(
+                                file=dataset_file.name,
+                                line=line_number,
+                                dialog_id=None,
+                                message="invalid JSON",
                             )
-                            continue
-                        except (TypeError, ValueError) as exc:
-                            report.skipped += 1
-                            report.errors.append(
-                                IngestionError(
-                                    split=split,
-                                    file=dataset_file.name,
-                                    line=line_number,
-                                    dialog_id=_dialog_id_for_error(raw_record),
-                                    message=str(exc),
-                                )
+                        )
+                        continue
+                    except (TypeError, ValueError) as exc:
+                        report.skipped += 1
+                        logger.warning(
+                            "Skipping invalid dataset record: file=%s line=%d "
+                            "dialog_id=%r error_type=%s",
+                            dataset_file.name,
+                            line_number,
+                            _dialog_id_for_error(raw_record),
+                            type(exc).__name__,
+                        )
+                        report.errors.append(
+                            IngestionError(
+                                file=dataset_file.name,
+                                line=line_number,
+                                dialog_id=_dialog_id_for_error(raw_record),
+                                message=str(exc),
                             )
-                            continue
+                        )
+                        continue
 
-                        try:
-                            async with session.begin():
-                                created = await _persist_record(session, normalized)
-                        except SQLAlchemyError:
-                            return _fatal_result(report, "Database failure during ingestion")
+                    try:
+                        async with session.begin():
+                            created = await _persist_record(session, normalized)
+                    except SQLAlchemyError as exc:
+                        logger.error(
+                            "Database failure during ingestion: file=%s line=%d error_type=%s",
+                            dataset_file.name,
+                            line_number,
+                            type(exc).__name__,
+                        )
+                        return _fatal_result(report, "Database failure during ingestion")
 
-                        if created:
-                            report.created += 1
-                        else:
-                            report.updated += 1
-    except OSError:
+                    if created:
+                        report.created += 1
+                    else:
+                        report.updated += 1
+    except OSError as exc:
+        logger.error("Unable to read dataset files: error_type=%s", type(exc).__name__)
         return _fatal_result(report, "Unable to read dataset files")
-    except SQLAlchemyError:
+    except SQLAlchemyError as exc:
+        logger.error("Database failure during ingestion: error_type=%s", type(exc).__name__)
         return _fatal_result(report, "Database failure during ingestion")
 
     exit_code = 1 if report.skipped else 0
+    logger.info(
+        "Dataset ingestion complete: created=%d updated=%d skipped=%d exit_code=%d",
+        report.created,
+        report.updated,
+        report.skipped,
+        exit_code,
+    )
     return IngestionResult(report=report, exit_code=exit_code)
 
 
 def _required_dataset_files(dataset_dir: Path) -> tuple[tuple[str, Path], ...]:
-    dataset_files = tuple((split, dataset_dir / f"{split}.jsonl") for split in SPLITS)
+    dataset_files = tuple((file, dataset_dir / f"{file}.jsonl") for file in FILES)
     missing_files = tuple(path.name for _, path in dataset_files if not path.is_file())
     if missing_files:
         names = ", ".join(missing_files)
@@ -335,4 +363,5 @@ async def _persist_record(session: AsyncSession, record: NormalizedRecord) -> bo
 
 
 def _fatal_result(report: IngestionReport, message: str) -> IngestionResult:
+    logger.error("Dataset ingestion failed: %s", message)
     return IngestionResult(report=report, exit_code=2, fatal_message=message)

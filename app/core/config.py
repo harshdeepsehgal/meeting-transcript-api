@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/meeting_transcripts"
     openai_api_key: SecretStr | None = Field(default=None, repr=False)
-    openai_model: str = "gpt-5-mini"
+    openai_model: str = "gpt-5.6-terra"
     openai_timeout_seconds: float = 60.0
     openai_max_retries: int = 2
 

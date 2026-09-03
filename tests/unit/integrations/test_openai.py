@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from fastapi import Request
 from openai import BadRequestError
 from pydantic import SecretStr
 
@@ -11,9 +12,22 @@ from app.integrations.openai import (
     SUMMARY_INSTRUCTIONS,
     OpenAIProvider,
     build_openai_provider,
+    get_openai_provider,
     is_context_limit_error,
     request_transcript_summary,
 )
+
+
+def test_get_openai_provider_reads_lifespan_state() -> None:
+    provider = SimpleNamespace(model="test-model")
+    request = Request(
+        {
+            "type": "http",
+            "state": {"openai_provider": provider},
+        }
+    )
+
+    assert get_openai_provider(request) is provider
 
 
 def test_openai_provider_requires_an_api_key() -> None:
@@ -33,6 +47,15 @@ def test_openai_provider_uses_configured_model() -> None:
     assert provider.model == "test-model"
 
 
+async def test_openai_provider_closes_client() -> None:
+    client = AsyncMock()
+    provider = OpenAIProvider(client=client, model="test-model")
+
+    await provider.close()
+
+    client.close.assert_awaited_once_with()
+
+
 async def test_request_transcript_summary_uses_complete_plain_text_input() -> None:
     client = AsyncMock()
     client.responses.create.return_value = SimpleNamespace(output_text="  Meeting summary.  ")
@@ -43,6 +66,7 @@ async def test_request_transcript_summary_uses_complete_plain_text_input() -> No
     assert summary == "Meeting summary."
     client.responses.create.assert_awaited_once_with(
         model="test-model",
+        reasoning={"effort": "none"},
         instructions=SUMMARY_INSTRUCTIONS,
         input="Speaker A: Meeting transcript.",
         truncation="disabled",
