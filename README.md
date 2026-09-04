@@ -169,9 +169,34 @@ curl -X POST 'http://localhost:8000/dialogs/dialog-id/summary?refresh=true'
 
 The cache is keyed only by `meeting_id`, so dialogs for the same meeting share one summary. A missing API key returns `503`; a transcript that exceeds the model context returns `422`; other provider failures return `502`. The service never truncates, chunks, or partially summarizes a transcript.
 
+### Generate dialog responses
+
+Generate answers for every stored query in a dialog with one OpenAI request:
+
+```bash
+curl -X POST 'http://localhost:8000/dialogs/dialog-id/responses'
+```
+
+```json
+[
+  {
+    "query": "What was decided?",
+    "storedResponse": "The stored MISeD answer.",
+    "generatedResponse": "The generated answer.",
+    "error": null
+  }
+]
+```
+
+The request sends the complete transcript and all ordered queries, requires strict JSON output,
+and atomically stores the validated generated answers. Every POST regenerates the batch. For a
+known dialog, configuration, context-limit, output-validation, and provider failures return one
+error item per stored query with `generatedResponse` set to `null`; previous generated answers are
+left unchanged.
+
 ## Postman
 
-Import [`postman/meeting-transcript-api.postman_collection.json`](postman/meeting-transcript-api.postman_collection.json) into Postman. Set the `base_url` and `dialog_id` collection variables for the local environment. The collection includes list, detail, cached-summary, and refreshed-summary requests.
+Import [`postman/meeting-transcript-api.postman_collection.json`](postman/meeting-transcript-api.postman_collection.json) into Postman. Set the `base_url` and `dialog_id` collection variables for the local environment. The collection includes list, detail, summary, and dialog-response requests.
 
 ## Tests
 

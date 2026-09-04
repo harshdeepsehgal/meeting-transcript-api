@@ -108,6 +108,25 @@
           ]
         }
       }
+    },
+    {
+      "name": "Generate dialog responses",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "description": "Generate answers for every dialog query in one OpenAI request and compare them with the stored MISeD answers.",
+        "url": {
+          "raw": "{{base_url}}/dialogs/{{dialog_id}}/responses",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dialogs",
+            "{{dialog_id}}",
+            "responses"
+          ]
+        }
+      }
     }
   ]
 }

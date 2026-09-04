@@ -10,13 +10,13 @@ The application will:
 - ingest all local MISeD `train`, `validation`, and `test` JSONL files in one command;
 - store shared meeting transcripts, complete dialogs, turns, attributions, and references in
   PostgreSQL;
-- expose the three required dialog APIs;
+- expose the four required dialog APIs;
 - summarize a dialog's complete meeting transcript through OpenAI;
 - cache one summary per meeting transcript; and
 - include migrations, tests, OpenAPI documentation, a Postman collection, and local setup
   instructions.
 
-Do not implement dataset downloading, transcript search, chunking, question answering,
+Do not implement dataset downloading, transcript search, chunking, ad hoc question answering,
 authentication, rate limiting, or cloud deployment.
 
 ## 2. Simple Application Design
@@ -36,7 +36,7 @@ app/
   services/dialogs.py        # list and detail SQLAlchemy queries
   services/ingestion.py      # JSONL validation, normalization, and writes
   services/summarization.py  # cache lookup and summary orchestration
-  routes/dialogs.py          # the three required endpoints
+  routes/dialogs.py          # the four required endpoints
   integrations/openai.py     # existing provider plus summary request helper
   cli/ingest.py              # existing CLI entry point
 ```
@@ -280,7 +280,15 @@ Processing order:
 
 A failed generation or refresh must not overwrite a previously valid cache row.
 
-### 3.5 OpenAPI Errors
+### 3.5 `POST /dialogs/{dialog_id}/responses`
+
+Send the complete transcript and every ordered query in one OpenAI Responses API call. Require
+strict JSON containing each query position, unchanged query, and generated response. Validate the
+complete batch before atomically storing responses on their dialog turns. Every POST regenerates;
+provider or output-validation failures return `200` with safe per-item errors and preserve prior
+generated responses. Re-ingestion preserves generated responses at matching turn positions.
+
+### 3.6 OpenAPI Errors
 
 Use FastAPI response models for successful responses and `HTTPException` for application errors.
 Document the applicable error codes on each route:
@@ -292,8 +300,9 @@ Document the applicable error codes on each route:
 | Transcript exceeds provider context | `422` |
 | OpenAI key missing for generation | `503` |
 | Other OpenAI failure | `502` |
+| Response batch configuration or provider failure | `200` with per-item errors |
 
-FastAPI's `/docs` and `/openapi.json` must describe all three endpoints, parameters, response
+FastAPI's `/docs` and `/openapi.json` must describe all four endpoints, parameters, response
 schemas, and expected errors.
 
 ## 4. Implementation Tasks
@@ -387,7 +396,7 @@ uv run pytest tests/integrations/test_openai.py tests/routes/test_summaries.py
 - [ ] Document ingestion exit codes and required local dataset paths.
 - [ ] Add a Postman v2.1 collection with variables for `base_url`, `dialog_id`, and `cursor`.
 - [ ] Include list, detail, cached-summary, and refreshed-summary requests.
-- [ ] Validate the collection JSON in a test and confirm it contains all three required endpoints.
+- [ ] Validate the collection JSON in a test and confirm it contains all four required endpoints.
 - [ ] Confirm `.gitignore` continues to exclude MISeD files and credentials.
 
 ### T6 - Final Verification
