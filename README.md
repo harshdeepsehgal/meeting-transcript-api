@@ -181,9 +181,17 @@ curl -X POST 'http://localhost:8000/dialogs/dialog-id/responses'
 [
   {
     "query": "What was decided?",
-    "storedResponse": "The stored MISeD answer.",
-    "generatedResponse": "The generated answer.",
-    "error": null
+    "storedResponse": {
+      "response": "The stored MISeD answer.",
+      "attributions": []
+    },
+    "generatedResponse": {
+      "response": "The generated answer.",
+      "attributions": {
+        "indexRanges": [{"startIndex": 0, "endIndex": 1}]
+      }
+    },
+    "err": null
   }
 ]
 ```
@@ -191,8 +199,9 @@ curl -X POST 'http://localhost:8000/dialogs/dialog-id/responses'
 The request sends the complete transcript and all ordered queries, requires strict JSON output,
 and atomically stores the validated generated answers. Every POST regenerates the batch. For a
 known dialog, configuration, context-limit, output-validation, and provider failures return one
-error item per stored query with `generatedResponse` set to `null`; previous generated answers are
-left unchanged.
+error item per stored query with `generatedResponse.response` set to `null`; previous generated
+answers are left unchanged. Stored responses include their saved attribution data; generated
+response attributions are parsed from the current OpenAI result and are not persisted.
 
 ## Postman
 

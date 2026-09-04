@@ -26,16 +26,21 @@ async def test_generates_all_responses_in_one_request_and_persists_them(
     provider: SimpleNamespace,
 ) -> None:
     await _seed_dialog(db_session)
-    calls: list[tuple[object, str, list[tuple[int, str]]]] = []
+    calls: list[tuple[object, list[tuple[int, str | None, str]], list[tuple[int, str]]]] = []
 
     async def fake_request(
         request_provider: object,
-        transcript: str,
+        transcript: list[tuple[int, str | None, str]],
         queries: list[tuple[int, str]],
     ) -> list[GeneratedDialogResponse]:
         calls.append((request_provider, transcript, queries))
         return [
-            GeneratedDialogResponse(position=0, query="First question?", response="Generated one."),
+            GeneratedDialogResponse(
+                position=0,
+                query="First question?",
+                response="Generated one.",
+                attributions={"indexRanges": [{"startIndex": 0, "endIndex": 1}]},
+            ),
             GeneratedDialogResponse(
                 position=1,
                 query="Second question?",
@@ -51,21 +56,27 @@ async def test_generates_all_responses_in_one_request_and_persists_them(
     assert response.json() == [
         {
             "query": "First question?",
-            "storedResponse": "Stored one.",
-            "generatedResponse": "Generated one.",
-            "error": None,
+            "storedResponse": {
+                "response": "Stored one.",
+                "attributions": {"indexRanges": [{"startIndex": 0, "endIndex": 0}]},
+            },
+            "generatedResponse": {
+                "response": "Generated one.",
+                "attributions": {"indexRanges": [{"startIndex": 0, "endIndex": 1}]},
+            },
+            "err": None,
         },
         {
             "query": "Second question?",
-            "storedResponse": "Stored two.",
-            "generatedResponse": "Generated two.",
-            "error": None,
+            "storedResponse": {"response": "Stored two.", "attributions": []},
+            "generatedResponse": {"response": "Generated two.", "attributions": None},
+            "err": None,
         },
     ]
     assert calls == [
         (
             provider,
-            "Speaker A: First segment.\nSecond segment.",
+            [(0, "Speaker A", "First segment."), (1, None, "Second segment.")],
             [(0, "First question?"), (1, "Second question?")],
         )
     ]
@@ -101,13 +112,17 @@ async def test_generation_failure_returns_item_errors_and_preserves_previous_ans
     assert response.json() == [
         {
             "query": query,
-            "storedResponse": stored,
-            "generatedResponse": None,
-            "error": {"code": "provider_failed", "message": "Response provider failed"},
+            "storedResponse": {"response": stored, "attributions": attributions},
+            "generatedResponse": {"response": None, "attributions": None},
+            "err": {"code": "provider_failed", "message": "Response provider failed"},
         }
-        for query, stored in [
-            ("First question?", "Stored one."),
-            ("Second question?", "Stored two."),
+        for query, stored, attributions in [
+            (
+                "First question?",
+                "Stored one.",
+                {"indexRanges": [{"startIndex": 0, "endIndex": 0}]},
+            ),
+            ("Second question?", "Stored two.", []),
         ]
     ]
     persisted = await db_session.scalars(
@@ -127,7 +142,7 @@ async def test_missing_provider_returns_configuration_errors(
     response = await client.post("/dialogs/response-dialog/responses")
 
     assert response.status_code == 200
-    assert [item["error"] for item in response.json()] == [
+    assert [item["err"] for item in response.json()] == [
         {
             "code": "openai_not_configured",
             "message": "OpenAI API key is not configured",
@@ -161,7 +176,7 @@ async def test_context_limit_returns_item_errors(
     response = await client.post("/dialogs/response-dialog/responses")
 
     assert response.status_code == 200
-    assert {item["error"]["code"] for item in response.json()} == {"context_limit_exceeded"}
+    assert {item["err"]["code"] for item in response.json()} == {"context_limit_exceeded"}
 
 
 async def test_unknown_dialog_returns_404_without_provider_call(
@@ -226,7 +241,7 @@ async def _seed_dialog(
                     query_metadata={},
                     response="Stored one.",
                     generated_response=generated_response,
-                    attributions=[],
+                    attributions={"indexRanges": [{"startIndex": 0, "endIndex": 0}]},
                     references=[],
                 ),
             ]

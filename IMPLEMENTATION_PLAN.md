@@ -283,8 +283,9 @@ A failed generation or refresh must not overwrite a previously valid cache row.
 ### 3.5 `POST /dialogs/{dialog_id}/responses`
 
 Send the complete transcript and every ordered query in one OpenAI Responses API call. Require
-strict JSON containing each query position, unchanged query, and generated response. Validate the
-complete batch before atomically storing responses on their dialog turns. Every POST regenerates;
+strict JSON containing each query position, unchanged query, generated response, and ordered
+transcript-position attribution ranges. Validate the complete batch before atomically storing
+response text on the dialog turns; generated attributions remain request-scoped. Every POST regenerates;
 provider or output-validation failures return `200` with safe per-item errors and preserve prior
 generated responses. Re-ingestion replaces dialog turns and deletes their generated responses.
 

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from pydantic import SecretStr
 
 from app import main
 from app.core.config import Settings
@@ -90,7 +91,7 @@ def test_application_documents_dialog_routes() -> None:
         "query",
         "storedResponse",
         "generatedResponse",
-        "error",
+        "err",
     }
 
 
@@ -98,7 +99,7 @@ async def test_application_lifespan_initializes_and_closes_openai_provider(
     monkeypatch,
     lifespan_database,
 ) -> None:
-    settings = Settings(_env_file=None, openai_api_key="test-key")
+    settings = Settings.model_construct(openai_api_key=SecretStr("test-key"))
     provider = SimpleNamespace(close=AsyncMock())
     build_provider = Mock(return_value=provider)
     monkeypatch.setattr(main, "get_settings", lambda: settings)
@@ -119,13 +120,14 @@ async def test_application_lifespan_allows_missing_openai_key(
     monkeypatch,
     lifespan_database,
 ) -> None:
-    settings = Settings(_env_file=None, openai_api_key=None)
+    settings = Settings.model_construct(openai_api_key=None)
     build_provider = Mock()
     monkeypatch.setattr(main, "get_settings", lambda: settings)
     monkeypatch.setattr(main, "build_openai_provider", build_provider)
     application = create_app()
 
     async with application.router.lifespan_context(application) as state:
+        assert state is not None
         assert state["openai_provider"] is None
 
     build_provider.assert_not_called()
@@ -135,7 +137,7 @@ async def test_application_lifespan_disposes_database_if_provider_close_fails(
     monkeypatch,
     lifespan_database,
 ) -> None:
-    settings = Settings(_env_file=None, openai_api_key="test-key")
+    settings = Settings.model_construct(openai_api_key=SecretStr("test-key"))
     provider = SimpleNamespace(close=AsyncMock(side_effect=RuntimeError("close failed")))
     monkeypatch.setattr(main, "get_settings", lambda: settings)
     monkeypatch.setattr(main, "build_openai_provider", Mock(return_value=provider))

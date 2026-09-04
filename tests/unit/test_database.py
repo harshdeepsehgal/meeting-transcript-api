@@ -1,3 +1,6 @@
+from collections.abc import AsyncGenerator
+from typing import cast
+
 import sqlalchemy as sa
 from fastapi import Request
 from sqlalchemy.dialects.postgresql import JSONB
@@ -88,7 +91,7 @@ async def test_session_dependency_yields_an_async_session() -> None:
     )
 
     try:
-        dependency = get_session(request)
+        dependency = cast(AsyncGenerator[AsyncSession, None], get_session(request))
         session = await anext(dependency)
 
         assert isinstance(session, AsyncSession)

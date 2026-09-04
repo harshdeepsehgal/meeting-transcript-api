@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import sqlalchemy as sa
 from openai import APIStatusError, OpenAIError
@@ -14,7 +15,6 @@ from app.integrations.openai import (
     request_dialog_responses,
 )
 from app.services.dialogs import get_dialog_detail
-from app.services.ingestion import render_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,9 @@ class DialogResponseResult:
 
     query: str
     stored_response: str
+    stored_attributions: Any
     generated_response: str | None
+    generated_attributions: Any | None
     error_code: str | None = None
     error_message: str | None = None
 
@@ -55,7 +57,7 @@ async def generate_dialog_responses(
     try:
         generated = await request_dialog_responses(
             provider,
-            render_transcript(segments),
+            [(segment.position, segment.speaker, segment.text) for segment in segments],
             [(turn.position, turn.query) for turn in turns],
         )
     except APIStatusError as exc:
@@ -79,7 +81,18 @@ async def generate_dialog_responses(
             code="provider_failed",
             message="Response provider failed",
         )
-    except (OpenAIError, ValueError) as exc:
+    except ValueError as exc:
+        logger.error(
+            "Dialog response output validation failure: dialog_id=%r validation_error=%s",
+            dialog_id,
+            exc,
+        )
+        return _error_results(
+            turns,
+            code="provider_failed",
+            message="Response provider failed",
+        )
+    except OpenAIError as exc:
         logger.error(
             "Dialog response generation failure: dialog_id=%r error_type=%s",
             dialog_id,
@@ -91,7 +104,7 @@ async def generate_dialog_responses(
             message="Response provider failed",
         )
 
-    generated_by_position = {item.position: item.response for item in generated}
+    generated_by_position = {item.position: item for item in generated}
     async with session.begin():
         for position, generated_response in generated_by_position.items():
             await session.execute(
@@ -100,7 +113,7 @@ async def generate_dialog_responses(
                     DialogTurn.dialog_id == dialog_id,
                     DialogTurn.position == position,
                 )
-                .values(generated_response=generated_response)
+                .values(generated_response=generated_response.response)
             )
 
     logger.info(
@@ -112,7 +125,9 @@ async def generate_dialog_responses(
         DialogResponseResult(
             query=turn.query,
             stored_response=turn.response,
-            generated_response=generated_by_position[turn.position],
+            stored_attributions=turn.attributions,
+            generated_response=generated_by_position[turn.position].response,
+            generated_attributions=generated_by_position[turn.position].attributions,
         )
         for turn in turns
     ]
@@ -128,7 +143,9 @@ def _error_results(
         DialogResponseResult(
             query=turn.query,
             stored_response=turn.response,
+            stored_attributions=turn.attributions,
             generated_response=None,
+            generated_attributions=None,
             error_code=code,
             error_message=message,
         )

@@ -17,6 +17,8 @@ from app.schemas.dialogs import (
     DialogResponseError,
     DialogResponseItem,
     DialogTurnResponse,
+    GeneratedDialogResponseBody,
+    StoredDialogResponse,
     SummaryResponse,
     TranscriptSegmentResponse,
 )
@@ -226,9 +228,15 @@ async def create_dialog_responses(
     return [
         DialogResponseItem(
             query=result.query,
-            storedResponse=result.stored_response,
-            generatedResponse=result.generated_response,
-            error=(
+            storedResponse=StoredDialogResponse(
+                response=result.stored_response,
+                attributions=result.stored_attributions,
+            ),
+            generatedResponse=GeneratedDialogResponseBody(
+                response=result.generated_response,
+                attributions=result.generated_attributions,
+            ),
+            err=(
                 DialogResponseError(
                     code=result.error_code,
                     message=result.error_message,

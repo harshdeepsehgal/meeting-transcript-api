@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import cast
 
 from app.main import create_app
 
@@ -54,7 +55,10 @@ def test_postman_collection_is_v21_and_covers_all_api_operations() -> None:
 
 
 def _postman_path(url: dict[str, object]) -> str:
-    path = "/" + "/".join(url["path"])
+    raw_path = url.get("path")
+    if not isinstance(raw_path, list) or not all(isinstance(part, str) for part in raw_path):
+        raise AssertionError("Postman URL path must be a list of strings")
+    path = "/" + "/".join(cast(list[str], raw_path))
     return path.replace("{{dialog_id}}", "{dialog_id}")
 
 

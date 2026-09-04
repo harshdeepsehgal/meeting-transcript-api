@@ -47,11 +47,11 @@
 
 - Send the complete meeting transcript and every ordered dialog query to OpenAI in one Responses API request.
 - Require strict JSON output containing each query position, the unchanged query, and its generated response. Reject the complete batch if any result is missing, duplicated, mismatched, or empty.
-- Return an ordered JSON array containing `query`, `storedResponse`, `generatedResponse`, and `error` for every dialog turn.
+- Return an ordered JSON array containing `query`, `storedResponse`, `generatedResponse`, and `err` for every dialog turn. Both response fields contain `response` and `attributions`; stored attributions come from the dataset, while generated attributions are parsed from the current OpenAI result and are not persisted.
 - Persist each successful generated response on its dialog turn. Every POST regenerates the complete batch; persisted responses are not a cache.
 - Persist the batch atomically. A failed batch must not replace previously generated responses.
 - Re-ingestion replaces all dialog turns and deletes their previously generated responses.
-- For a known dialog, missing OpenAI configuration, context-limit rejection, invalid output, and other provider failures return `200 OK` with `generatedResponse` set to null and the same safe error on every item.
+- For a known dialog, missing OpenAI configuration, context-limit rejection, invalid output, and other provider failures return `200 OK` with `generatedResponse.response` set to null and the same safe error on every item.
 - Do not truncate or split the transcript or query batch.
 
 ## 6. Configuration

@@ -60,15 +60,29 @@ class DialogResponseError(BaseModel):
     message: str
 
 
+class StoredDialogResponse(BaseModel):
+    """Stored MISeD response and its saved attribution data."""
+
+    response: str
+    attributions: Any
+
+
+class GeneratedDialogResponseBody(BaseModel):
+    """Generated response and its transcript attribution data."""
+
+    response: str | None
+    attributions: Any = None
+
+
 class DialogResponseItem(BaseModel):
     """One stored dialog answer compared with the generated answer."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     query: str
-    stored_response: str = Field(alias="storedResponse")
-    generated_response: str | None = Field(alias="generatedResponse")
-    error: DialogResponseError | None
+    stored_response: StoredDialogResponse = Field(alias="storedResponse")
+    generated_response: GeneratedDialogResponseBody = Field(alias="generatedResponse")
+    err: DialogResponseError | None
 
 
 __all__ = [
@@ -78,6 +92,8 @@ __all__ = [
     "DialogResponseError",
     "DialogResponseItem",
     "DialogTurnResponse",
+    "GeneratedDialogResponseBody",
+    "StoredDialogResponse",
     "SummaryResponse",
     "TranscriptSegmentResponse",
 ]
