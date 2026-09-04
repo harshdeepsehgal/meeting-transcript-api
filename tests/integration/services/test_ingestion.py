@@ -103,7 +103,7 @@ async def test_identical_reimport_is_idempotent_and_preserves_summary(
     assert summary == "Keep this cached summary."
 
 
-async def test_reimport_replaces_children_without_touching_summary(
+async def test_reimport_replaces_children_and_generated_responses_without_touching_summary(
     tmp_path: Path,
     db_session: AsyncSession,
 ) -> None:
@@ -114,6 +114,26 @@ async def test_reimport_replaces_children_without_touching_summary(
             TranscriptSummary(
                 meeting_id="fixture-meeting-shared",
                 summary="Keep this summary during replacement.",
+            )
+        )
+        turn = await db_session.scalar(
+            sa.select(DialogTurn).where(
+                DialogTurn.dialog_id == "fixture-dialog-train-1",
+                DialogTurn.position == 0,
+            )
+        )
+        assert turn is not None
+        turn.generated_response = "Delete this generated response during replacement."
+        db_session.add(
+            DialogTurn(
+                dialog_id="fixture-dialog-train-1",
+                position=1,
+                query="Removed query?",
+                query_metadata={},
+                response="Removed stored response.",
+                generated_response="Remove this generated response.",
+                attributions=[],
+                references=[],
             )
         )
 
@@ -139,6 +159,7 @@ async def test_reimport_replaces_children_without_touching_summary(
 
     assert result.report.created == 0
     assert result.report.updated == 4
+    db_session.expire_all()
     segments = await db_session.scalars(
         sa.select(TranscriptSegment)
         .where(TranscriptSegment.meeting_id == "fixture-meeting-shared")
@@ -147,11 +168,18 @@ async def test_reimport_replaces_children_without_touching_summary(
     assert [(segment.position, segment.text) for segment in segments] == [
         (0, "The replacement segment.")
     ]
-    turn = await db_session.scalar(
-        sa.select(DialogTurn).where(DialogTurn.dialog_id == "fixture-dialog-train-1")
+    turns = list(
+        await db_session.scalars(
+            sa.select(DialogTurn)
+            .where(DialogTurn.dialog_id == "fixture-dialog-train-1")
+            .order_by(DialogTurn.position)
+        )
     )
+    assert len(turns) == 1
+    turn = turns[0]
     assert turn is not None
     assert turn.query == "What changed?"
+    assert turn.generated_response is None
     summary = await db_session.scalar(
         sa.select(TranscriptSummary.summary).where(
             TranscriptSummary.meeting_id == "fixture-meeting-shared"
