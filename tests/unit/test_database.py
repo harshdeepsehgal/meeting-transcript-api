@@ -25,6 +25,7 @@ def test_domain_models_declare_the_normalized_tables() -> None:
         "dialog_id",
         "position",
     }
+    assert DialogTurn.__table__.c.generated_response.nullable
     assert Dialog.__table__.c.dialog_id.primary_key
     assert TranscriptSummary.__table__.c.meeting_id.primary_key
 
@@ -62,6 +63,7 @@ def test_domain_models_declare_foreign_key_actions_and_checks() -> None:
         "ck_dialog_turns_position_nonnegative",
         "ck_dialog_turns_query_nonempty",
         "ck_dialog_turns_query_metadata_object",
+        "ck_dialog_turns_generated_response_nonempty",
         "ck_transcript_summaries_summary_nonempty",
     }
 

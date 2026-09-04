@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -9,11 +10,15 @@ from pydantic import SecretStr
 
 from app.core.config import Settings
 from app.integrations.openai import (
+    DIALOG_RESPONSES_FORMAT,
+    DIALOG_RESPONSES_INSTRUCTIONS,
     SUMMARY_INSTRUCTIONS,
+    GeneratedDialogResponse,
     OpenAIProvider,
     build_openai_provider,
     get_openai_provider,
     is_context_limit_error,
+    request_dialog_responses,
     request_transcript_summary,
 )
 
@@ -81,6 +86,76 @@ async def test_request_transcript_summary_rejects_empty_output(output_text: obje
 
     with pytest.raises(ValueError, match="empty summary output"):
         await request_transcript_summary(provider, "Transcript")
+
+
+async def test_request_dialog_responses_batches_queries_as_strict_json() -> None:
+    client = AsyncMock()
+    client.responses.create.return_value = SimpleNamespace(
+        output_text=json.dumps(
+            {
+                "responses": [
+                    {"position": 1, "query": "Second?", "response": " Second answer. "},
+                    {"position": 0, "query": "First?", "response": "First answer."},
+                ]
+            }
+        )
+    )
+    provider = OpenAIProvider(client=client, model="test-model")
+
+    generated = await request_dialog_responses(
+        provider,
+        "Speaker A: Meeting transcript.",
+        [(0, "First?"), (1, "Second?")],
+    )
+
+    assert generated == [
+        GeneratedDialogResponse(position=0, query="First?", response="First answer."),
+        GeneratedDialogResponse(position=1, query="Second?", response="Second answer."),
+    ]
+    call = client.responses.create.await_args
+    assert call.kwargs["model"] == "test-model"
+    assert call.kwargs["reasoning"] == {"effort": "none"}
+    assert call.kwargs["instructions"] == DIALOG_RESPONSES_INSTRUCTIONS
+    assert json.loads(call.kwargs["input"]) == {
+        "transcript": "Speaker A: Meeting transcript.",
+        "queries": [
+            {"position": 0, "query": "First?"},
+            {"position": 1, "query": "Second?"},
+        ],
+    }
+    assert call.kwargs["text"] == {"format": DIALOG_RESPONSES_FORMAT}
+    assert call.kwargs["truncation"] == "disabled"
+
+
+@pytest.mark.parametrize(
+    "payload, message",
+    [
+        ("not-json", "invalid dialog response JSON"),
+        ('{"responses": []}', "unexpected number"),
+        (
+            '{"responses": [{"position": 1, "query": "Question?", "response": "Answer"}]}',
+            "unknown dialog position",
+        ),
+        (
+            '{"responses": [{"position": 0, "query": "Changed?", "response": "Answer"}]}',
+            "mismatched dialog query",
+        ),
+        (
+            '{"responses": [{"position": 0, "query": "Question?", "response": "  "}]}',
+            "empty generated response",
+        ),
+    ],
+)
+async def test_request_dialog_responses_rejects_invalid_batches(
+    payload: str,
+    message: str,
+) -> None:
+    client = AsyncMock()
+    client.responses.create.return_value = SimpleNamespace(output_text=payload)
+    provider = OpenAIProvider(client=client, model="test-model")
+
+    with pytest.raises(ValueError, match=message):
+        await request_dialog_responses(provider, "Transcript", [(0, "Question?")])
 
 
 def test_context_limit_error_classifier_only_matches_context_failures() -> None:

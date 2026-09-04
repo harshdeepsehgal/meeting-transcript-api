@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DialogListItem(BaseModel):
@@ -53,10 +53,30 @@ class SummaryResponse(BaseModel):
     summary: str
 
 
+class DialogResponseError(BaseModel):
+    """Safe error information for a failed batch generation."""
+
+    code: str
+    message: str
+
+
+class DialogResponseItem(BaseModel):
+    """One stored dialog answer compared with the generated answer."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    query: str
+    stored_response: str = Field(alias="storedResponse")
+    generated_response: str | None = Field(alias="generatedResponse")
+    error: DialogResponseError | None
+
+
 __all__ = [
     "DialogDetailResponse",
     "DialogListItem",
     "DialogListResponse",
+    "DialogResponseError",
+    "DialogResponseItem",
     "DialogTurnResponse",
     "SummaryResponse",
     "TranscriptSegmentResponse",

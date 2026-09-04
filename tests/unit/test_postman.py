@@ -10,6 +10,7 @@ EXPECTED_OPERATIONS = {
     ("GET", "/dialogs"),
     ("GET", "/dialogs/{dialog_id}"),
     ("POST", "/dialogs/{dialog_id}/summary"),
+    ("POST", "/dialogs/{dialog_id}/responses"),
 }
 
 
@@ -33,6 +34,7 @@ def test_postman_collection_is_v21_and_covers_all_api_operations() -> None:
         "Get dialog",
         "Get cached summary",
         "Refresh summary",
+        "Generate dialog responses",
     }
 
     list_item = next(item for item in collection["item"] if item["name"] == "List dialogs")

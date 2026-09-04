@@ -286,7 +286,7 @@ Send the complete transcript and every ordered query in one OpenAI Responses API
 strict JSON containing each query position, unchanged query, and generated response. Validate the
 complete batch before atomically storing responses on their dialog turns. Every POST regenerates;
 provider or output-validation failures return `200` with safe per-item errors and preserve prior
-generated responses. Re-ingestion preserves generated responses at matching turn positions.
+generated responses. Re-ingestion replaces dialog turns and deletes their generated responses.
 
 ### 3.6 OpenAPI Errors
 

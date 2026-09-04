@@ -50,7 +50,7 @@
 - Return an ordered JSON array containing `query`, `storedResponse`, `generatedResponse`, and `error` for every dialog turn.
 - Persist each successful generated response on its dialog turn. Every POST regenerates the complete batch; persisted responses are not a cache.
 - Persist the batch atomically. A failed batch must not replace previously generated responses.
-- Re-ingestion must preserve generated responses at matching turn positions, even when the source content changes, and remove responses for deleted positions.
+- Re-ingestion replaces all dialog turns and deletes their previously generated responses.
 - For a known dialog, missing OpenAI configuration, context-limit rejection, invalid output, and other provider failures return `200 OK` with `generatedResponse` set to null and the same safe error on every item.
 - Do not truncate or split the transcript or query batch.
 

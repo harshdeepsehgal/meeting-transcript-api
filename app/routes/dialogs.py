@@ -14,11 +14,14 @@ from app.schemas.dialogs import (
     DialogDetailResponse,
     DialogListItem,
     DialogListResponse,
+    DialogResponseError,
+    DialogResponseItem,
     DialogTurnResponse,
     SummaryResponse,
     TranscriptSegmentResponse,
 )
 from app.services.dialogs import get_dialog_detail, list_dialogs
+from app.services.responses import generate_dialog_responses
 from app.services.summarization import summarize_dialog
 
 router = APIRouter(prefix="/dialogs", tags=["dialogs"])
@@ -186,6 +189,56 @@ async def create_dialog_summary(
         raise HTTPException(status_code=404, detail="Dialog not found")
     logger.info("Summary returned: dialog_id=%r refresh=%s", dialog_id, refresh)
     return SummaryResponse(summary=summary)
+
+
+@router.post(
+    "/{dialog_id}/responses",
+    response_model=list[DialogResponseItem],
+    responses={
+        404: {
+            "description": "Dialog not found",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Dialog not found"},
+                }
+            },
+        },
+        422: {"description": "Request validation error"},
+    },
+)
+async def create_dialog_responses(
+    dialog_id: Annotated[str, Path(min_length=1)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    provider: Annotated[OpenAIProvider | None, Depends(get_openai_provider)],
+) -> list[DialogResponseItem]:
+    """Generate responses for every query in one OpenAI request."""
+    logger.info("Dialog responses requested: dialog_id=%r", dialog_id)
+    results = await generate_dialog_responses(
+        session,
+        dialog_id=dialog_id,
+        provider=provider,
+    )
+    if results is None:
+        logger.warning("Responses requested for unknown dialog: dialog_id=%r", dialog_id)
+        raise HTTPException(status_code=404, detail="Dialog not found")
+
+    logger.info("Dialog responses returned: dialog_id=%r items=%d", dialog_id, len(results))
+    return [
+        DialogResponseItem(
+            query=result.query,
+            storedResponse=result.stored_response,
+            generatedResponse=result.generated_response,
+            error=(
+                DialogResponseError(
+                    code=result.error_code,
+                    message=result.error_message,
+                )
+                if result.error_code is not None and result.error_message is not None
+                else None
+            ),
+        )
+        for result in results
+    ]
 
 
 def _detail_response(

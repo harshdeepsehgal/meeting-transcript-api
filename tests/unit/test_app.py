@@ -23,17 +23,19 @@ def lifespan_database(monkeypatch) -> SimpleNamespace:
     return resources
 
 
-def test_application_documents_dialog_read_routes() -> None:
+def test_application_documents_dialog_routes() -> None:
     schema = create_app().openapi()
 
     assert set(schema["paths"]) == {
         "/dialogs",
         "/dialogs/{dialog_id}",
+        "/dialogs/{dialog_id}/responses",
         "/dialogs/{dialog_id}/summary",
     }
     assert set(schema["paths"]["/dialogs"]) == {"get"}
     assert set(schema["paths"]["/dialogs/{dialog_id}"]) == {"get"}
     assert set(schema["paths"]["/dialogs/{dialog_id}/summary"]) == {"post"}
+    assert set(schema["paths"]["/dialogs/{dialog_id}/responses"]) == {"post"}
 
     list_operation = schema["paths"]["/dialogs"]["get"]
     list_parameters = {parameter["name"]: parameter for parameter in list_operation["parameters"]}
@@ -74,6 +76,21 @@ def test_application_documents_dialog_read_routes() -> None:
         "Validation error or transcript exceeds model context limit",
         "Summary provider failed",
         "OpenAI API key is not configured",
+    }
+
+    responses_operation = schema["paths"]["/dialogs/{dialog_id}/responses"]["post"]
+    assert "requestBody" not in responses_operation
+    response_schema = responses_operation["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]
+    assert response_schema["type"] == "array"
+    assert response_schema["items"]["$ref"].endswith("/DialogResponseItem")
+    response_properties = schema["components"]["schemas"]["DialogResponseItem"]["properties"]
+    assert set(response_properties) == {
+        "query",
+        "storedResponse",
+        "generatedResponse",
+        "error",
     }
 
 
