@@ -79,6 +79,7 @@ class DialogTurn(Base):
     query: Mapped[str] = mapped_column(sa.Text, nullable=False)
     query_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     response: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    generated_response: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     attributions: Mapped[Any] = mapped_column(
         JSONB,
         nullable=False,
@@ -104,6 +105,10 @@ class DialogTurn(Base):
         sa.CheckConstraint(
             "jsonb_typeof(query_metadata) = 'object'",
             name="ck_dialog_turns_query_metadata_object",
+        ),
+        sa.CheckConstraint(
+            "generated_response IS NULL OR length(btrim(generated_response)) > 0",
+            name="ck_dialog_turns_generated_response_nonempty",
         ),
     )
 

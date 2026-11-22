@@ -7,7 +7,7 @@ def test_settings_load_environment_variables(monkeypatch) -> None:
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("OPENAI_API_KEY", "test-secret")
 
-    settings = Settings(_env_file=None)
+    settings = Settings()
 
     assert settings.app_env == "test"
     assert settings.openai_api_key == SecretStr("test-secret")
